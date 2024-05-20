@@ -7,10 +7,11 @@ import time
 
 pressed_pins = set()
 button_press_time = 0
-button_debounce_time = 0.075
+button_debounce_time = 0.1
 holding_command = False
 holding_command_timer = 0
 holding_command_time = 0.85
+command_executed = False
 
 time.sleep(1)
 kbd = Keyboard(usb_hid.devices)
@@ -50,27 +51,26 @@ while True:
         if len(pressed_pins) == 0:
             button_press_time = time.monotonic()
         pressed_pins.update(pressing_pins)
-        
+    elif command_executed:
+        pressed_pins.clear()
+        command_executed = False
 
     if len(pressed_pins) > 0 and time.monotonic() > button_press_time + button_debounce_time:
-        for command_map in commands_maps:
-            if command_map.pins == pressed_pins:
-                if command_map.hold_command:
-                    if not holding_command:
-                        kbd.press(command_map.hold_command)
-                        holding_command = True
+        for command_map in [c for c in commands_maps if c.pins == pressed_pins]:
+            if command_map.hold_command:
+                if not holding_command:
+                    kbd.press(command_map.hold_command)
+                    holding_command = True
+                if not command_executed:
                     kbd.press(*command_map.commands)
                     time.sleep(0.01)
                     kbd.release(*command_map.commands)
-                    holding_command_timer = time.monotonic()
-                else:
-                    kbd.send(*command_map.commands)
-                break
-        pressed_pins.clear()
+                    command_executed = True
+                holding_command_timer = time.monotonic()
+            elif not command_executed:
+                kbd.send(*command_map.commands)
+                command_executed = True
 
-    if (
-        holding_command
-        and time.monotonic() > holding_command_timer + holding_command_time
-    ):
+    if holding_command and time.monotonic() > holding_command_timer + holding_command_time:
         kbd.release_all()
         holding_command = False
