@@ -7,7 +7,7 @@ import time
 
 pressed_pins = set()
 button_press_time = 0
-button_debounce_time = 0.1
+button_debounce_time = 0.075
 holding_command = False
 holding_command_timer = 0
 holding_command_time = 1
