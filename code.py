@@ -1,68 +1,76 @@
-# SPDX-FileCopyrightText: 2018 Kattni Rembor for Adafruit Industries
-#
-# SPDX-License-Identifier: MIT
-
-"""CircuitPython Essentials HID Keyboard example"""
+import board
+import usb_hid
+from digitalio import DigitalInOut, Direction, Pull
+from adafruit_hid.keyboard import Keyboard
+from adafruit_hid.keycode import Keycode
 import time
 
-import board
-import digitalio
-import usb_hid
-from adafruit_hid.keyboard import Keyboard
-from adafruit_hid.keyboard_layout_us import KeyboardLayoutUS
-from adafruit_hid.keycode import Keycode
+pressed_pins = set()
+button_press_time = 0
+button_debounce_time = 0.1
+holding_command = False
+holding_command_timer = 0
+holding_command_time = 1
 
-# A simple neat keyboard demo in CircuitPython
+time.sleep(1)
+kbd = Keyboard(usb_hid.devices)
 
-# The pins we'll use, each will have an internal pullup
-keypress_pins = [board.A1, board.A2]
-# Our array of key objects
-key_pin_array = []
-# The Keycode sent for each button, will be paired with a control key
-keys_pressed = [Keycode.A, "Hello World!\n"]
-control_key = Keycode.SHIFT
 
-# The keyboard object!
-time.sleep(1)  # Sleep for a bit to avoid a race condition on some systems
-keyboard = Keyboard(usb_hid.devices)
-keyboard_layout = KeyboardLayoutUS(keyboard)  # We're in the US :)
+class Button:
+    def __init__(self, pin):
+        self.pin = pin
+        self.input = DigitalInOut(pin)
+        self.input.direction = Direction.INPUT
+        self.input.pull = Pull.DOWN
 
-# Make all pin objects inputs with pullups
-for pin in keypress_pins:
-    key_pin = digitalio.DigitalInOut(pin)
-    key_pin.direction = digitalio.Direction.INPUT
-    key_pin.pull = digitalio.Pull.UP
-    key_pin_array.append(key_pin)
 
-# For most CircuitPython boards:
-led = digitalio.DigitalInOut(board.LED)
-# For QT Py M0:
-# led = digitalio.DigitalInOut(board.SCK)
-led.direction = digitalio.Direction.OUTPUT
+class CommandMap:
+    """Mapping a Set of pins to a list of key commands and optional held key command."""
+    def __init__(self, pins, commands, hold_command=None):
+        self.pins = pins
+        self.commands = commands
+        self.hold_command = hold_command
 
-print("Waiting for key pin...")
+
+button_pins = [board.D2, board.D1, board.D0]
+buttons = [Button(pin) for pin in button_pins]
+
+commands_maps = [
+    CommandMap({button_pins[0]}, [Keycode.COMMAND, Keycode.TAB]),
+    CommandMap({button_pins[1]}, [Keycode.TAB], Keycode.COMMAND),
+    CommandMap({button_pins[2]}, [Keycode.CONTROL, Keycode.TAB]),
+    CommandMap({button_pins[0], button_pins[1]}, [Keycode.SHIFT, Keycode.COMMAND, Keycode.LEFT_BRACKET]),
+    CommandMap({button_pins[1], button_pins[2]}, [Keycode.COMMAND, Keycode.GRAVE_ACCENT]),
+    CommandMap({button_pins[0], button_pins[1], button_pins[2]}, [Keycode.COMMAND, Keycode.R]),
+]
 
 while True:
-    # Check each pin
-    for key_pin in key_pin_array:
-        if not key_pin.value:  # Is it grounded?
-            i = key_pin_array.index(key_pin)
-            print("Pin #%d is grounded." % i)
+    pressing_pins = {button.pin for button in buttons if button.input.value}
+    if len(pressing_pins):
+        if len(pressed_pins) == 0:
+            button_press_time = time.monotonic()
+        pressed_pins.update(pressing_pins)
+        
 
-            # Turn on the red LED
-            led.value = True
+    if len(pressed_pins) > 0 and time.monotonic() > button_press_time + button_debounce_time:
+        for command_map in commands_maps:
+            if command_map.pins == pressed_pins:
+                if command_map.hold_command:
+                    if not holding_command:
+                        kbd.press(command_map.hold_command)
+                        holding_command = True
+                    kbd.press(*command_map.commands)
+                    time.sleep(0.01)
+                    kbd.release(*command_map.commands)
+                    holding_command_timer = time.monotonic()
+                else:
+                    kbd.send(*command_map.commands)
+                break
+        pressed_pins.clear()
 
-            while not key_pin.value:
-                pass  # Wait for it to be ungrounded!
-            # "Type" the Keycode or string
-            key = keys_pressed[i]  # Get the corresponding Keycode or string
-            if isinstance(key, str):  # If it's a string...
-                keyboard_layout.write(key)  # ...Print the string
-            else:  # If it's not a string...
-                keyboard.press(control_key, key)  # "Press"...
-                keyboard.release_all()  # ..."Release"!
-
-            # Turn off the red LED
-            led.value = False
-
-    time.sleep(0.01)
+    if (
+        holding_command
+        and time.monotonic() > holding_command_timer + holding_command_time
+    ):
+        kbd.release_all()
+        holding_command = False
