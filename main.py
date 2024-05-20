@@ -10,7 +10,7 @@ button_press_time = 0
 button_debounce_time = 0.075
 holding_command = False
 holding_command_timer = 0
-holding_command_time = 1
+holding_command_time = 0.85
 
 time.sleep(1)
 kbd = Keyboard(usb_hid.devices)
